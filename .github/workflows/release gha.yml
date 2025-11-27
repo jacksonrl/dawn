@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64-v8a, armeabi-v7a, x86, x86_64]
+        arch: [arm64-v8a, armeabi-v7a]
     env:
       ANDROID_NDK_VERSION: r27d
     steps:
@@ -125,8 +125,6 @@ jobs:
           mkdir -p dawn_package/lib/windows/Release
           mkdir -p dawn_package/lib/arm64-v8a
           mkdir -p dawn_package/lib/armeabi-v7a
-          mkdir -p dawn_package/lib/x86
-          mkdir -p dawn_package/lib/x86_64
 
           # 1. Headers
           cp -r artifacts/dawn-headers/* dawn_package/include/
@@ -138,8 +136,6 @@ jobs:
           # 3. Android Libs
           cp artifacts/android-lib-arm64-v8a/libwebgpu_dawn.a dawn_package/lib/arm64-v8a/
           cp artifacts/android-lib-armeabi-v7a/libwebgpu_dawn.a dawn_package/lib/armeabi-v7a/
-          cp artifacts/android-lib-x86/libwebgpu_dawn.a dawn_package/lib/x86/
-          cp artifacts/android-lib-x86_64/libwebgpu_dawn.a dawn_package/lib/x86_64/
 
           # Verify structure
           echo "Final Package Structure:"

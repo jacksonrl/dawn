@@ -1,0 +1,168 @@
+name: Build and Release Dawn
+
+on:
+  workflow_dispatch: # Allows manual triggering
+
+permissions:
+  contents: write # Required to create Releases
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Set up python (needed for Dawn's dependency fetching if submodules aren't enough)
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Build Windows Debug
+        run: |
+          cmake -S . -B out/Debug `
+            -DAWN_ENABLE_D3D11=ON `
+            -DAWN_ENABLE_D3D12=ON `
+            -DAWN_ENABLE_VULKAN=OFF `
+            -DAWN_ENABLE_OPENGL=OFF `
+            -DAWN_BUILD_SAMPLES=OFF `
+            -DAWN_BUILD_TESTS=OFF `
+            -DCMAKE_BUILD_TYPE=Debug
+          cmake --build out/Debug --config Debug --parallel 4
+
+      - name: Build Windows Release
+        run: |
+          cmake -S . -B out/Release `
+            -DAWN_ENABLE_D3D11=ON `
+            -DAWN_ENABLE_D3D12=ON `
+            -DAWN_ENABLE_VULKAN=OFF `
+            -DAWN_ENABLE_OPENGL=OFF `
+            -DAWN_BUILD_SAMPLES=OFF `
+            -DAWN_BUILD_TESTS=OFF `
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build out/Release --config Release --parallel 4
+
+      - name: Stage Windows Artifacts
+        run: |
+          mkdir staging
+          mkdir staging\Debug
+          mkdir staging\Release
+          copy out\Debug\src\dawn\native\Debug\webgpu_dawn.lib staging\Debug\webgpu_dawn.lib
+          copy out\Release\src\dawn\native\Release\webgpu_dawn.lib staging\Release\webgpu_dawn.lib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-libs
+          path: staging
+
+  build-android:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64-v8a, armeabi-v7a, x86, x86_64]
+    env:
+      ANDROID_NDK_VERSION: r27d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Build Android ${{ matrix.arch }}
+        run: |
+          cmake -S . -B out/${{ matrix.arch }} -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ matrix.arch }} \
+            -DANDROID_PLATFORM=android-26 \
+            -DAWN_ENABLE_VULKAN=ON \
+            -DAWN_ENABLE_D3D11=OFF \
+            -DAWN_ENABLE_D3D12=OFF \
+            -DAWN_BUILD_SAMPLES=OFF \
+            -DAWN_BUILD_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          ninja -C out/${{ matrix.arch }} src/dawn/native/webgpu_dawn
+
+      # We only need to export headers once, so we do it on the arm64 leg
+      - name: Extract Headers (arm64 only)
+        if: matrix.arch == 'arm64-v8a'
+        run: |
+          cmake --install out/${{ matrix.arch }} --prefix install_headers
+          # Move them to a clean folder for upload
+          mkdir headers_out
+          cp -r install_headers/include headers_out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-lib-${{ matrix.arch }}
+          path: out/${{ matrix.arch }}/src/dawn/native/libwebgpu_dawn.a
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'arm64-v8a'
+        with:
+          name: dawn-headers
+          path: headers_out/include
+
+  create-release:
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize Directory Structure
+        run: |
+          # Create the exact structure your project needs
+          mkdir -p dawn_package/include
+          mkdir -p dawn_package/lib/windows/Debug
+          mkdir -p dawn_package/lib/windows/Release
+          mkdir -p dawn_package/lib/arm64-v8a
+          mkdir -p dawn_package/lib/armeabi-v7a
+          mkdir -p dawn_package/lib/x86
+          mkdir -p dawn_package/lib/x86_64
+
+          # 1. Headers
+          cp -r artifacts/dawn-headers/* dawn_package/include/
+
+          # 2. Windows Libs
+          cp artifacts/windows-libs/Debug/webgpu_dawn.lib dawn_package/lib/windows/Debug/
+          cp artifacts/windows-libs/Release/webgpu_dawn.lib dawn_package/lib/windows/Release/
+
+          # 3. Android Libs
+          cp artifacts/android-lib-arm64-v8a/libwebgpu_dawn.a dawn_package/lib/arm64-v8a/
+          cp artifacts/android-lib-armeabi-v7a/libwebgpu_dawn.a dawn_package/lib/armeabi-v7a/
+          cp artifacts/android-lib-x86/libwebgpu_dawn.a dawn_package/lib/x86/
+          cp artifacts/android-lib-x86_64/libwebgpu_dawn.a dawn_package/lib/x86_64/
+
+          # Verify structure
+          echo "Final Package Structure:"
+          ls -R dawn_package
+
+      - name: Create ZIP
+        run: |
+          cd dawn_package
+          zip -r ../dawn-windows-android.zip .
+
+      - name: Generate Release Tag
+        id: tag
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "release_tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "release_tag=build-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          files: dawn-windows-android.zip
+          draft: false
+          prerelease: false

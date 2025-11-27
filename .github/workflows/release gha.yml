@@ -1,10 +1,13 @@
 name: Build and Release Dawn
 
 on:
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
-  contents: write # Required to create Releases
+  contents: write
 
 jobs:
   build-windows:
@@ -14,34 +17,34 @@ jobs:
         with:
           submodules: true
 
-      # Set up python (needed for Dawn's dependency fetching if submodules aren't enough)
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
+      # Configure and Build DEBUG
       - name: Build Windows Debug
         run: |
           cmake -S . -B out/Debug `
-            -DAWN_ENABLE_D3D11=ON `
-            -DAWN_ENABLE_D3D12=ON `
-            -DAWN_ENABLE_VULKAN=OFF `
-            -DAWN_ENABLE_OPENGL=OFF `
-            -DAWN_BUILD_SAMPLES=OFF `
-            -DAWN_BUILD_TESTS=OFF `
+            -DDAWN_ENABLE_D3D11=ON `
+            -DDAWN_ENABLE_D3D12=ON `
+            -DDAWN_ENABLE_VULKAN=OFF `
+            -DDAWN_ENABLE_OPENGL=OFF `
+            -DDAWN_BUILD_SAMPLES=OFF `
+            -DDAWN_BUILD_TESTS=OFF `
             -DCMAKE_BUILD_TYPE=Debug
-          cmake --build out/Debug --config Debug --parallel 4
+          cmake --build out/Debug --config Debug --target webgpu_dawn --parallel 4
 
       - name: Build Windows Release
         run: |
           cmake -S . -B out/Release `
-            -DAWN_ENABLE_D3D11=ON `
-            -DAWN_ENABLE_D3D12=ON `
-            -DAWN_ENABLE_VULKAN=OFF `
-            -DAWN_ENABLE_OPENGL=OFF `
-            -DAWN_BUILD_SAMPLES=OFF `
-            -DAWN_BUILD_TESTS=OFF `
+            -DDAWN_ENABLE_D3D11=ON `
+            -DDAWN_ENABLE_D3D12=ON `
+            -DDAWN_ENABLE_VULKAN=OFF `
+            -DDAWN_ENABLE_OPENGL=OFF `
+            -DDAWN_BUILD_SAMPLES=OFF `
+            -DDAWN_BUILD_TESTS=OFF `
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build out/Release --config Release --parallel 4
+          cmake --build out/Release --config Release --target webgpu_dawn --parallel 4
 
       - name: Stage Windows Artifacts
         run: |
@@ -55,12 +58,11 @@ jobs:
         with:
           name: windows-libs
           path: staging
-
   build-android:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [arm64-v8a, armeabi-v7a]
+        arch: [arm64-v8a, armeabi-v7a] # Removed x86
     env:
       ANDROID_NDK_VERSION: r27d
     steps:
@@ -80,26 +82,31 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=${{ matrix.arch }} \
             -DANDROID_PLATFORM=android-26 \
-            -DAWN_ENABLE_VULKAN=ON \
-            -DAWN_ENABLE_D3D11=OFF \
-            -DAWN_ENABLE_D3D12=OFF \
-            -DAWN_BUILD_SAMPLES=OFF \
-            -DAWN_BUILD_TESTS=OFF \
+            -DDAWN_ENABLE_VULKAN=ON \
+            -DDAWN_ENABLE_D3D11=OFF \
+            -DDAWN_ENABLE_D3D12=OFF \
+            -DDAWN_BUILD_SAMPLES=OFF \
+            -DDAWN_BUILD_TESTS=OFF \
             -DCMAKE_BUILD_TYPE=Release
-          ninja -C out/${{ matrix.arch }} src/dawn/native/webgpu_dawn
+          
+          # Fixed: Build the target 'webgpu_dawn', not the file path
+          ninja -C out/${{ matrix.arch }} webgpu_dawn
 
-      # We only need to export headers once, so we do it on the arm64 leg
+      # Extract headers from one of the builds (arm64)
+      # We enable install temporarily here just to get the headers cleanly
       - name: Extract Headers (arm64 only)
         if: matrix.arch == 'arm64-v8a'
         run: |
+          # Re-configure to enable install just for header extraction
+          cmake -S . -B out/${{ matrix.arch }} -DDAWN_ENABLE_INSTALL=ON
           cmake --install out/${{ matrix.arch }} --prefix install_headers
-          # Move them to a clean folder for upload
           mkdir headers_out
           cp -r install_headers/include headers_out/
 
       - uses: actions/upload-artifact@v4
         with:
           name: android-lib-${{ matrix.arch }}
+          # Note: Ninja usually places the output in src/dawn/native inside the build dir
           path: out/${{ matrix.arch }}/src/dawn/native/libwebgpu_dawn.a
 
       - uses: actions/upload-artifact@v4
@@ -108,6 +115,9 @@ jobs:
           name: dawn-headers
           path: headers_out/include
 
+  # =========================================================
+  # 3. PACKAGE & RELEASE
+  # =========================================================
   create-release:
     needs: [build-windows, build-android]
     runs-on: ubuntu-latest

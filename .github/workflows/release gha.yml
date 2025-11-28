@@ -109,20 +109,19 @@ jobs:
 
       - name: Organize Directory Structure
         run: |
-          # Create directory structure
+          # Create directory structure with lowercase debug/release
           mkdir -p dawn_package/include
-          mkdir -p dawn_package/lib/windows/Debug
-          mkdir -p dawn_package/lib/windows/Release
+          mkdir -p dawn_package/lib/windows/debug
+          mkdir -p dawn_package/lib/windows/release
           mkdir -p dawn_package/lib/arm64-v8a
           mkdir -p dawn_package/lib/armeabi-v7a
 
           # 1. Headers
           cp -r artifacts/dawn-headers/* dawn_package/include/
 
-          # 2. Windows Libs
-          # Artifacts download into subfolders matching the artifact name
-          cp artifacts/windows-lib-Debug/webgpu_dawn.lib dawn_package/lib/windows/Debug/
-          cp artifacts/windows-lib-Release/webgpu_dawn.lib dawn_package/lib/windows/Release/
+          # 2. Windows Libs (Copying into lowercase dirs)
+          cp artifacts/windows-lib-Debug/webgpu_dawn.lib dawn_package/lib/windows/debug/
+          cp artifacts/windows-lib-Release/webgpu_dawn.lib dawn_package/lib/windows/release/
 
           # 3. Android Libs
           cp artifacts/android-lib-arm64-v8a/libwebgpu_dawn.a dawn_package/lib/arm64-v8a/
@@ -140,11 +139,7 @@ jobs:
       - name: Generate Release Tag
         id: tag
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "release_tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            echo "release_tag=build-${{ github.run_number }}" >> $GITHUB_OUTPUT
-          fi
+          echo "release_tag=build-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

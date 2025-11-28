@@ -2,9 +2,6 @@ name: Build and Release Dawn
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
@@ -12,6 +9,11 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,42 +23,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build Windows Debug
+      - name: Build Windows ${{ matrix.build_type }}
         run: |
-          cmake -S . -B out/Debug `
+          cmake -S . -B out/${{ matrix.build_type }} `
             -DDAWN_ENABLE_D3D11=ON `
             -DDAWN_ENABLE_D3D12=ON `
             -DDAWN_ENABLE_VULKAN=OFF `
             -DDAWN_ENABLE_OPENGL=OFF `
             -DDAWN_BUILD_SAMPLES=OFF `
             -DDAWN_BUILD_TESTS=OFF `
-            -DCMAKE_BUILD_TYPE=Debug
-          cmake --build out/Debug --config Debug --target webgpu_dawn --parallel 4
-
-      - name: Build Windows Release
-        run: |
-          cmake -S . -B out/Release `
-            -DDAWN_ENABLE_D3D11=ON `
-            -DDAWN_ENABLE_D3D12=ON `
-            -DDAWN_ENABLE_VULKAN=OFF `
-            -DDAWN_ENABLE_OPENGL=OFF `
-            -DDAWN_BUILD_SAMPLES=OFF `
-            -DDAWN_BUILD_TESTS=OFF `
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build out/Release --config Release --target webgpu_dawn --parallel 4
-
-      - name: Stage Windows Artifacts
-        run: |
-          mkdir staging
-          mkdir staging\Debug
-          mkdir staging\Release
-          copy out\Debug\src\dawn\native\Debug\webgpu_dawn.lib staging\Debug\webgpu_dawn.lib
-          copy out\Release\src\dawn\native\Release\webgpu_dawn.lib staging\Release\webgpu_dawn.lib
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          
+          cmake --build out/${{ matrix.build_type }} --config ${{ matrix.build_type }} --target webgpu_dawn --parallel 4
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-libs
-          path: staging
+          name: windows-lib-${{ matrix.build_type }}
+          path: out/${{ matrix.build_type }}/src/dawn/native/${{ matrix.build_type }}/webgpu_dawn.lib
 
   build-android:
     runs-on: ubuntu-latest
@@ -99,7 +82,6 @@ jobs:
       - name: Extract Headers (arm64 only)
         if: matrix.arch == 'arm64-v8a'
         run: |
-          # Re-configure to enable install just for header extraction
           cmake -S . -B out/${{ matrix.arch }} -DDAWN_ENABLE_INSTALL=ON
           cmake --install out/${{ matrix.arch }} --prefix install_headers
           mkdir headers_out
@@ -127,7 +109,7 @@ jobs:
 
       - name: Organize Directory Structure
         run: |
-          # Create the exact structure your project needs
+          # Create directory structure
           mkdir -p dawn_package/include
           mkdir -p dawn_package/lib/windows/Debug
           mkdir -p dawn_package/lib/windows/Release
@@ -138,8 +120,9 @@ jobs:
           cp -r artifacts/dawn-headers/* dawn_package/include/
 
           # 2. Windows Libs
-          cp artifacts/windows-libs/Debug/webgpu_dawn.lib dawn_package/lib/windows/Debug/
-          cp artifacts/windows-libs/Release/webgpu_dawn.lib dawn_package/lib/windows/Release/
+          # Artifacts download into subfolders matching the artifact name
+          cp artifacts/windows-lib-Debug/webgpu_dawn.lib dawn_package/lib/windows/Debug/
+          cp artifacts/windows-lib-Release/webgpu_dawn.lib dawn_package/lib/windows/Release/
 
           # 3. Android Libs
           cp artifacts/android-lib-arm64-v8a/libwebgpu_dawn.a dawn_package/lib/arm64-v8a/

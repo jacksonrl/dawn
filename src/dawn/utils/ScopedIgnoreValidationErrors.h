@@ -1,4 +1,4 @@
-// Copyright 2017 The Dawn & Tint Authors
+// Copyright 2025 The Dawn & Tint Authors
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
@@ -25,38 +25,32 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
-#define SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
+#ifndef SRC_DAWN_UTILS_SCOPEDIGNOREVALIDATIONERRORS_H_
+#define SRC_DAWN_UTILS_SCOPEDIGNOREVALIDATIONERRORS_H_
 
-#include "dawn/native/CommandBuffer.h"
+#include <webgpu/webgpu_cpp.h>
 
-namespace dawn::native {
-struct BeginRenderPassCmd;
-}  // namespace dawn::native
+#include "dawn/common/NonCopyable.h"
 
-namespace dawn::native::opengl {
+namespace dawn::utils {
 
-class Device;
-struct OpenGLFunctions;
-
-class CommandBuffer final : public CommandBufferBase {
+// Sometimes it is useful to ignore validation errors, for example when testing the behavior of
+// client-side state tracking on error objects. (the state tracking is what's tested, not the
+// potential validation errors that are generated). This scoper class wraps a validation error
+// scope.
+class ScopedIgnoreValidationErrors : NonCopyable {
   public:
-    CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
+    // Noop if `device` is nullptr.
+    explicit ScopedIgnoreValidationErrors(wgpu::Device device);
+    ~ScopedIgnoreValidationErrors();
 
-    MaybeError Execute(const OpenGLFunctions& gl);
+    ScopedIgnoreValidationErrors(ScopedIgnoreValidationErrors&& other);
+    ScopedIgnoreValidationErrors& operator=(ScopedIgnoreValidationErrors&& other);
 
   private:
-    MaybeError ExecuteComputePass(const OpenGLFunctions& gl);
-    MaybeError ExecuteRenderPass(BeginRenderPassCmd* renderPass, const OpenGLFunctions& gl);
+    wgpu::Device mDevice = nullptr;
 };
 
-// Like glTexSubImage*, the "data" argument is either a pointer to image data or
-// an offset if a PBO is bound.
-MaybeError DoTexSubImage(const OpenGLFunctions& gl,
-                         const TextureCopy& destination,
-                         const void* data,
-                         const TexelCopyBufferLayout& dataLayout,
-                         const TexelExtent3D& copySize);
-}  // namespace dawn::native::opengl
+}  // namespace dawn::utils
 
-#endif  // SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
+#endif  // SRC_DAWN_UTILS_SCOPEDIGNOREVALIDATIONERRORS_H_

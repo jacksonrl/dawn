@@ -1,4 +1,4 @@
-// Copyright 2017 The Dawn & Tint Authors
+// Copyright 2025 The Dawn & Tint Authors
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
@@ -25,38 +25,41 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
-#define SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
+#ifndef SRC_TINT_LANG_SPIRV_WRITER_RAISE_UNARY_POLYFILL_H_
+#define SRC_TINT_LANG_SPIRV_WRITER_RAISE_UNARY_POLYFILL_H_
 
-#include "dawn/native/CommandBuffer.h"
+#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/utils/result.h"
 
-namespace dawn::native {
-struct BeginRenderPassCmd;
-}  // namespace dawn::native
+// Forward declarations.
+namespace tint::core::ir {
+class Module;
+}  // namespace tint::core::ir
 
-namespace dawn::native::opengl {
+namespace tint::spirv::writer::raise {
 
-class Device;
-struct OpenGLFunctions;
-
-class CommandBuffer final : public CommandBufferBase {
-  public:
-    CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
-
-    MaybeError Execute(const OpenGLFunctions& gl);
-
-  private:
-    MaybeError ExecuteComputePass(const OpenGLFunctions& gl);
-    MaybeError ExecuteRenderPass(BeginRenderPassCmd* renderPass, const OpenGLFunctions& gl);
+// The capabilities that the transform can support.
+const core::ir::Capabilities kPolyfillUnaryCapabilities{
+    core::ir::Capability::kAllowDuplicateBindings,
+    core::ir::Capability::kAllowAnyInputAttachmentIndexType,
+    core::ir::Capability::kAllowNonCoreTypes,
+    core::ir::Capability::kAllow8BitIntegers,
 };
 
-// Like glTexSubImage*, the "data" argument is either a pointer to image data or
-// an offset if a PBO is bound.
-MaybeError DoTexSubImage(const OpenGLFunctions& gl,
-                         const TextureCopy& destination,
-                         const void* data,
-                         const TexelCopyBufferLayout& dataLayout,
-                         const TexelExtent3D& copySize);
-}  // namespace dawn::native::opengl
+/// Configuration for the UnaryPolyfill transform.
+struct UnaryPolyfillConfig {
+    /// If true, polyfill f32 negation with bit manipulation.
+    bool polyfill_f32_negation = false;
+    /// If true, polyfill f32 abs with sign() * x.
+    bool polyfill_f32_abs = false;
+};
 
-#endif  // SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_
+/// UnaryPolyfill is a transform that replaces unary instructions with polyfills.
+/// @param module the module to transform
+/// @param config the configuration used in the polyfill function
+/// @returns success or failure
+Result<SuccessType> UnaryPolyfill(core::ir::Module& module, const UnaryPolyfillConfig& config);
+
+}  // namespace tint::spirv::writer::raise
+
+#endif  // SRC_TINT_LANG_SPIRV_WRITER_RAISE_UNARY_POLYFILL_H_
